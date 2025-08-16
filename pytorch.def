@@ -69,7 +69,7 @@ From: nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 %files
     # Copy your Python script into the container.
     # IMPORTANT: The source path MUST be on /scratch and you MUST edit it.
-    /scratch/your_username/prototype.py /opt/app/
+    /scratch/lragnese/prototype.py /opt/app/
 
 %runscript
     echo "This container includes:"
