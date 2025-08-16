@@ -1,0 +1,93 @@
+Bootstrap: docker
+From: nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+%labels
+    Maintainer "Your Name"
+    Version "fed-cma-torch2.3-cuda11.8-py3.10"
+    Description "Singularity container for the Fed-CMA project using PyTorch 2.3.1 with Python 3.10 on CUDA 11.8"
+
+%environment
+    # Set Python 3.10 as the default python
+    export PATH="/usr/bin/python3.10:$PATH"
+    export PYTHON_VERSION="3.10"
+
+    # Set environment variables for CUDA
+    export LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/local/cudnn/lib:$LD_LIBRARY_PATH"
+    export NVIDIA_VISIBLE_DEVICES=all
+    export NVIDIA_DRIVER_CAPABILITIES=all
+
+    # Set locale (important for some Python applications)
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+
+%post
+    # Non interactive installs (important for Ubuntu/Debian on iHPC)
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Create mount points required by your HPC for auto-binding
+    mkdir -p /data /projects /scratch
+
+    # Update package lists and install essential build tools and Python
+    apt-get update -y
+    apt-get install -y --no-install-recommends \
+        python3.10 \
+        python3.10-distutils \
+        python3.10-dev \
+        build-essential \
+        wget \
+        git
+
+    # Install pip for Python 3.10
+    wget https://bootstrap.pypa.io/get-pip.py
+    python3.10 get-pip.py
+    rm get-pip.py
+
+    # Upgrade pip and setuptools to ensure compatibility
+    python3.10 -m pip install --upgrade pip setuptools wheel
+
+    # --- INSTALL PYTORCH AND DEPENDENCIES FOR YOUR SCRIPT ---
+    # Install PyTorch with CUDA 11.8 support, plus torchvision
+    python3.10 -m pip install --no-cache-dir \
+        torch==2.3.1 \
+        torchvision==0.18.1 \
+        --index-url https://download.pytorch.org/whl/cu118
+
+    # Install the other required libraries for your script
+    python3.10 -m pip install --no-cache-dir \
+        tqdm \
+        scikit-learn \
+        scipy \
+        matplotlib
+
+    # Create the application directory
+    mkdir -p /opt/app
+
+    # Clean up APT caches to reduce container size
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%files
+    # Copy your Python script into the container.
+    # IMPORTANT: The source path MUST be on /scratch and you MUST edit it.
+    /scratch/your_username/prototype.py /opt/app/
+
+%runscript
+    echo "This container includes:"
+    echo " - Python 3.10"
+    echo " - PyTorch 2.3.1 (GPU enabled for CUDA 11.8)"
+    echo "Running your Fed-CMA script now..."
+    echo "------------------------------------------------"
+    exec python3.10 /opt/app/prototype.py "$@"
+
+%test
+    # Verify Python version
+    echo "Verifying Python version..."
+    python3.10 --version
+
+    # Verify PyTorch installation and GPU availability
+    echo "Verifying PyTorch installation..."
+    python3.10 -c "import torch; print('PyTorch version:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+
+    # Verify another dependency
+    echo "Verifying scikit-learn installation..."
+    python3.10 -c "import sklearn; print('scikit-learn version:', sklearn.__version__)"
