@@ -1,0 +1,46 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+
+%labels
+    Author      Your Name
+    Version     1.0
+    Description Runs the Fed-CMA prototype script with PyTorch and CUDA 12.1.
+
+%environment
+    # Set a standard locale to prevent errors with some tools
+    export LC_ALL=C
+    # Add the app directory to the Python path
+    export PYTHONPATH=/opt/app:$PYTHONPATH
+
+%post
+    # Set non-interactive frontend for package installers like apt-get
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Update package lists
+    apt-get -y update
+
+    # The base container has python3 and pip. We just need to install packages.
+    # We install a specific torchvision version to match the PyTorch in the base image.
+    pip install --no-cache-dir \
+        torchvision==0.18.1 \
+        tqdm \
+        scikit-learn \
+        scipy \
+        matplotlib
+
+    # Create mount points for HPC volumes, as required by the documentation
+    mkdir -p /data /projects /scratch
+
+    # Create the directory for our application code
+    mkdir -p /opt/app
+
+%files
+    # Copy the Python script into the container's app directory.
+    # IMPORTANT: The source path MUST be on /scratch.
+    /scratch/your_username/prototype.py /opt/app/
+
+%runscript
+    echo "Container is running... Executing the Fed-CMA Python script."
+    # The 'exec' command ensures the python script is the main process.
+    # The '$@' passes any command-line arguments to the script.
+    exec python3 /opt/app/prototype.py "$@"
