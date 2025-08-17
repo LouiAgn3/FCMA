@@ -87,64 +87,62 @@ print("CNN model defined.")
 def partition_data_non_iid_dirichlet(dataset, num_clients, alpha=0.5):
     """
     Partitions a dataset into non-IID subsets using a Dirichlet distribution.
-
-    Args:
-        dataset: The dataset to partition (e.g., datasets.MNIST).
-        num_clients: The number of clients.
-        alpha: The concentration parameter for the Dirichlet distribution. A smaller
-               alpha creates a more skewed, non-IID distribution.
-
-    Returns:
-        A list of DataLoaders, one for each client.
+    This version handles cases where clients might be assigned zero samples.
     """
     print(f"Partitioning data into {num_clients} non-IID clients with alpha={alpha}...")
 
-    # Get labels and number of classes
-    labels = np.array(dataset.targets)
+    # FIX 1: Convert tensor to numpy array correctly to avoid DeprecationWarning.
+    try:
+        labels = dataset.targets.numpy()
+    except AttributeError:
+        labels = np.array([sample[1] for sample in dataset]) # Slower fallback for other dataset types
+
     num_classes = len(np.unique(labels))
     
-    # Create a list of indices for each class
     idx_by_class = [np.where(labels == i)[0] for i in range(num_classes)]
 
-    # Use Dirichlet distribution to get class proportions for each client
-    # Shape: (num_clients, num_classes)
     class_proportions = np.random.dirichlet([alpha] * num_classes, num_clients)
 
-    # Dictionary to store client data indices
     client_idx_map = {i: [] for i in range(num_clients)}
     
-    # Keep track of the indices we have already assigned
-    assigned_indices = {i: 0 for i in range(num_classes)}
+    # Track the last used index for each class to avoid reassigning data
+    class_start_idx = [0] * num_classes
 
+    # Distribute class indices to clients
     for client_i in range(num_clients):
+        client_data_count = 0
         for class_j in range(num_classes):
-            # Calculate the number of samples for this class and client
             proportion = class_proportions[client_i, class_j]
-            num_samples_for_class = len(idx_by_class[class_j])
-            num_samples_to_assign = int(proportion * num_samples_for_class)
             
-            # Get the start and end index for slicing
-            start_idx = assigned_indices[class_j]
-            end_idx = start_idx + num_samples_to_assign
+            # Number of samples of this class to assign to the current client
+            num_to_assign = int(proportion * len(idx_by_class[class_j]))
             
-            # Ensure we don't go out of bounds (can happen with rounding)
-            if end_idx > len(idx_by_class[class_j]):
-                end_idx = len(idx_by_class[class_j])
-
-            # Assign the indices to the client
-            client_idx_map[client_i].extend(idx_by_class[class_j][start_idx:end_idx])
+            # Get the slice of indices for this client
+            start = class_start_idx[class_j]
+            end = start + num_to_assign
+            assigned_indices = idx_by_class[class_j][start:end]
             
-            # Update the starting point for the next client
-            assigned_indices[class_j] = end_idx
+            client_idx_map[client_i].extend(assigned_indices)
+            
+            # Update the starting index for the next client that gets this class
+            class_start_idx[class_j] = end
+            client_data_count += len(assigned_indices)
+            
+        # Shuffle indices for each client to mix up class order
+        np.random.shuffle(client_idx_map[client_i])
 
     # Create DataLoaders for each client
     client_dataloaders = []
     for i in range(num_clients):
-        subset = Subset(dataset, client_idx_map[i])
-        loader = DataLoader(subset, batch_size=32, shuffle=True)
-        client_dataloaders.append(loader)
+        indices = client_idx_map[i]
+        
+        # FIX 2: Only create a DataLoader if the client has been assigned data.
+        if len(indices) > 0:
+            subset = Subset(dataset, indices)
+            loader = DataLoader(subset, batch_size=32, shuffle=True)
+            client_dataloaders.append(loader)
 
-    print("Data partitioning complete.")
+    print(f"Data partitioning complete. Created {len(client_dataloaders)} non-empty client dataloaders.")
     return client_dataloaders
   
 def get_flat_params(model):
