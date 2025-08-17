@@ -185,6 +185,28 @@ def evaluate(model, test_loader):
             correct += (predicted == target).sum().item()
     return correct / total
 
+def visualize_client_data_distribution(dataloaders, num_clients_to_show=5):
+    """Plots a bar chart of class distributions for a few clients."""
+    fig, axes = plt.subplots(1, num_clients_to_show, figsize=(20, 4), sharey=True)
+    fig.suptitle('Client Data Distributions (Non-IID)')
+
+    for i in range(num_clients_to_show):
+        loader = dataloaders[i]
+        labels = []
+        for _, batch_labels in loader:
+            labels.extend(batch_labels.tolist())
+        
+        hist = np.histogram(labels, bins=np.arange(11))[0]
+        axes[i].bar(np.arange(10), hist)
+        axes[i].set_title(f"Client {i}")
+        axes[i].set_xlabel("Class (Digit)")
+        if i == 0:
+            axes[i].set_ylabel("Number of Samples")
+
+    plt.savefig('client_data_distribution.png')
+    plt.close()
+    print("Saved client data distribution plot to 'client_data_distribution.png'")
+
 # --- MODIFIED --- FedMA function that preserves the original model architecture
 def intra_cluster_fedma(cluster_models, threshold=0.5):
     if not cluster_models:
@@ -272,6 +294,9 @@ def main():
     # --- USE THE NEW NON-IID PARTITIONER ---
     # Using alpha=0.5 for a moderately non-IID distribution. Can tune this.
     client_dataloaders = partition_data_non_iid_dirichlet(train_dataset, NUM_CLIENTS, alpha=0.5)
+
+    # --- VISUALIZE THE RESULT ---
+    visualize_client_data_distribution(client_dataloaders)
     
     # --- Offline Step: Generate Low-Rank Matrix M ---
     # (Section is unchanged)
