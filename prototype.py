@@ -1,3 +1,4 @@
+# --- SETUP AND IMPORTS ---
 
 # Standard libraries
 import numpy as np
@@ -25,24 +26,24 @@ import matplotlib.pyplot as plt
 print("Libraries imported successfully.")
 
 
-# ---  CONFIGURATION PARAMETERS ---
+# --- CONFIGURATION PARAMETERS ---
 
 # Federated Learning Hyperparameters
-NUM_CLIENTS = 20
+NUM_CLIENTS = 100
 NUM_ROUNDS = 100
 LOCAL_EPOCHS = 3
 BATCH_SIZE = 32
-# Tuned Hyperparameters for stability
+# --- MODIFIED --- Tuned Hyperparameters for stability
 LEARNING_RATE = 0.005
 
 # Fed-CMA Specific Hyperparameters
 NUM_CLUSTERS = 4
-#  Increased interval for stability
+# --- MODIFIED --- Increased interval for stability
 RECLUSTERING_INTERVAL = 20
 LOW_RANK_DIM = 10
-#  Threshold for neuron matching in FedMA
+# --- NEW --- Threshold for neuron matching in FedMA
 SIMILARITY_THRESHOLD = 0.5
-# Weight for blending models during re-clustering
+# --- NEW --- Weight for blending models during re-clustering
 MODEL_BLEND_WEIGHT = 0.5
 
 # Similarity Metric Weights
@@ -82,13 +83,13 @@ class SimpleCNN(nn.Module):
 print("CNN model defined.")
 
 
-# ---  HELPER FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 
 def get_flat_params(model):
     return torch.cat([p.data.view(-1) for p in model.parameters()])
 
 def calculate_s_data(client_dataloaders):
-
+    # (Function is unchanged)
     client_histograms = []
     for loader in client_dataloaders:
         labels = []
@@ -101,7 +102,7 @@ def calculate_s_data(client_dataloaders):
     return np.array(client_histograms)
 
 def calculate_s_model(model_updates, M):
-
+    # (Function is unchanged)
     projected_updates = model_updates @ M
     norm = np.linalg.norm(projected_updates, axis=1, keepdims=True)
     norm[norm == 0] = 1e-9
@@ -109,7 +110,7 @@ def calculate_s_model(model_updates, M):
     return cosine_sim
 
 def evaluate(model, test_loader):
-
+    # (Function is unchanged)
     model.eval()
     correct = 0
     total = 0
@@ -199,8 +200,8 @@ def intra_cluster_fedma(cluster_models, threshold=0.5):
     return aggregated_model
 # --- MAIN EXECUTION ---
 def main():
-    # ---  DATA LOADING AND NON-IID PARTITIONING ---
-
+    # --- 3. DATA LOADING AND NON-IID PARTITIONING ---
+    # (Section is unchanged)
     print("\nLoading and partitioning data from local files...")
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
     train_dataset = datasets.MNIST(root='./data', train=True, download=False, transform=transform)
@@ -210,6 +211,7 @@ def main():
     print(f"Created {len(client_dataloaders)} IID client dataloaders for testing.")
     
     # --- Offline Step: Generate Low-Rank Matrix M ---
+    # (Section is unchanged)
     print("\nPerforming offline low-rank matrix generation...")
     initial_updates = []
     temp_model = SimpleCNN().to(DEVICE)
@@ -329,7 +331,9 @@ def main():
     print("Plot saved to fed-cma-convergence-v2.png")
 
 if __name__ == '__main__':
+    # --- MODIFIED --- Switched back to non-IID data for the real experiment
+    # You can switch this back to the non-IID partitioner when you're ready.
     print("Using non-IID data partitioning for this experiment.")
+    # This block is now being defined inside main() for better scope.
     main()
-
 
