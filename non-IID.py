@@ -27,7 +27,8 @@ print("Libraries imported successfully.")
 
 
 # --- CONFIGURATION PARAMETERS ---
-
+# Seeding for reproducibility
+SEED = 42
 # Federated Learning Hyperparameters
 NUM_CLIENTS = 100
 NUM_ROUNDS = 100
@@ -249,6 +250,11 @@ def intra_cluster_fedma(cluster_models, threshold=0.5):
 
 # --- MAIN EXECUTION ---
 def main():
+    # --- Seeding for Reproducibility ---
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED) 
     print("Using non-IID data partitioning for this experiment.")
 
     # --- DATA LOADING AND NON-IID PARTITIONING ---
