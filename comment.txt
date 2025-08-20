@@ -9,7 +9,7 @@ Some features added
 
 
 
-Final
+Some findings:
 Personalized vs. Cluster Models: Personalized models are highly effective on local data (~80-84% accuracy), while cluster models generalize poorly to the global test set (~38% accuracy).
 
 Impact of Data Skew: The extreme data heterogeneity (Dirichlet alpha=0.1) is the primary driver of the performance gap.
