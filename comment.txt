@@ -1,5 +1,11 @@
+Some feature added
 1. PCA interval recal
 2. Similarity normalizing
-
+3. Initial clustering no longer random
+4. Decopy reference b
 
 3. Data imbalancing
+
+Lastest file test CIFARv2 
+Concern in the intra cluster aggregation. 
+Initial clustering Based on Data distribution. 
