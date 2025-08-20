@@ -1,0 +1,5 @@
+1. PCA interval recal
+2. Similarity normalizing
+
+
+3. Data imbalancing
