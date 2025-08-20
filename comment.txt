@@ -1,11 +1,27 @@
-Some feature added
-1. PCA interval recal
-2. Similarity normalizing
-3. Initial clustering no longer random
-4. Decopy reference b
-
-3. Data imbalancing
 
 Lastest file test CIFARv2 
-Concern in the intra cluster aggregation. 
-Initial clustering Based on Data distribution. 
+Some features added
+1. PCA interval recalculation
+2. Similarity normalizing
+3. Initial Clustering No Longer Random
+4. Decopy reference bug fixed with model reference bias 
+5. Initial clustering Based on Data distribution. 
+
+
+
+Final
+Personalized vs. Cluster Models: Personalized models are highly effective on local data (~80-84% accuracy), while cluster models generalize poorly to the global test set (~38% accuracy).
+
+Impact of Data Skew: The extreme data heterogeneity (Dirichlet alpha=0.1) is the primary driver of the performance gap.
+
+Re-clustering Stability: The dynamic re-clustering  successfully prevents model divergence and ensures stable, albeit slow, learning for the cluster models. But 5 10, 15 and 20 rounds don't seem to change the results much. 
+Main concerns:
+
+Most result seem to be very similar no matter if it's the baseline or parameters are being changed. Maybe due to data imbalancing?? 
+Similar Baseline/Proposed Results: Our proposed method shows no significant advantage over the simpler baselines.
+Maybe Because: Models within clusters maybe too similar for FedMA's neuron-matching to provide a benefit. ??
+Concern in the intracluster aggregation framework. 
+Concern if PCA is even benificial?? 
+
+Action Item 1: Increase LOCAL_EPOCHS (e.g., to 10 or 15) to encourage more divergence between local models and better test the aggregation methods.
+Action Item 2: Implement a fairer evaluation metric by testing cluster models on a combined test set from only the clients within that cluster.
