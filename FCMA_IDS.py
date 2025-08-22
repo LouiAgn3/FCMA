@@ -26,19 +26,19 @@ print("Libraries imported successfully.")
 # --- CONFIGURATION ---
 
 # Select the federated learning mode: 'FedAvg', 'FedMA', or 'FCMA'
-FEDERATED_MODE = 'FedMA'
+FEDERATED_MODE = 'FCMA'
 
 # Federated Learning Hyperparameters
-NUM_CLIENTS = 20
+NUM_CLIENTS = 10
 NUM_ROUNDS = 50
-LOCAL_EPOCHS = 2
+LOCAL_EPOCHS = 5
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
 SEED = 42
 
 # FCMA / FedMA Specific Hyperparameters
 NUM_CLUSTERS = 5
-RECLUSTERING_INTERVAL = 10 # Re-cluster every 2 rounds
+RECLUSTERING_INTERVAL = 10 
 LOW_RANK_DIM = 10         # Dimension for PCA projection
 SIMILARITY_THRESHOLD = 0.1
 
@@ -322,20 +322,27 @@ def main():
 
 
     # --- Model and Cluster Initialization ---
-    if FEDERATED_MODE == 'FCMA':
+    if FEDERATED_MODE == 'FedAvg':
+        print("Initializing global model for FedAvg...")
+        global_model = IDS_LSTM(input_dim).to(DEVICE)
+
+    elif FEDERATED_MODE == 'FedMA':
+        print("Initializing single model group for FedMA (Matched Averaging)...")
+        # FedMA will use the cluster_models list, but only with one model
+        cluster_models = [IDS_LSTM(input_dim).to(DEVICE)] 
+        # All clients are permanently assigned to the single group (cluster 0)
+        client_cluster_assignments = np.zeros(NUM_CLIENTS, dtype=int)
+
+    elif FEDERATED_MODE == 'FCMA':
         print(f"Initializing models and clusters for {FEDERATED_MODE}...")
         cluster_models = [IDS_LSTM(input_dim).to(DEVICE) for _ in range(NUM_CLUSTERS)]
-  
+
         print("FCMA: Performing initial clustering based on data similarity...")
         data_sim_matrix = calculate_s_data(client_dataloaders)
         distance_matrix = 1 - data_sim_matrix
         clusterer = AgglomerativeClustering(n_clusters=NUM_CLUSTERS, metric='precomputed', linkage='average')
         client_cluster_assignments = clusterer.fit_predict(distance_matrix)
         print("Initial clustering complete.")
-            
-    else: 
-        print("Initializing global model...")
-        global_model = IDS_LSTM(input_dim).to(DEVICE)
 
     local_models = [IDS_LSTM(input_dim).to(DEVICE) for _ in range(NUM_CLIENTS)]
 
@@ -400,11 +407,13 @@ def main():
                 current_local_models.append(copy.deepcopy(local_models[client_id]))
                 continue
 
-            if FEDERATED_MODE == 'FCMA':
-                # Each client gets the model for its currently assigned cluster
-                model_to_train = copy.deepcopy(cluster_models[client_cluster_assignments[client_id]])
-            else: # FedAvg
+            if FEDERATED_MODE == 'FedAvg':
                 model_to_train = copy.deepcopy(global_model)
+            else: # Handles both FCMA and FedMA
+                # Each client gets the model for its assigned cluster.
+                # For FedMA, everyone is in cluster 0.
+                cluster_idx = client_cluster_assignments[client_id]
+                model_to_train = copy.deepcopy(cluster_models[cluster_idx])
 
             model_to_train.lstm1.flatten_parameters()
             model_to_train.lstm2.flatten_parameters()
@@ -426,18 +435,27 @@ def main():
             local_models = current_local_models
 
         # --- Aggregation ---
-        if FEDERATED_MODE != 'FCMA':
-            active_models = [local_models[i] for i, l in enumerate(client_dataloaders) if hasattr(l.dataset, 'labels') and len(l.dataset.labels) > 0]
+        active_models = [local_models[i] for i, l in enumerate(client_dataloaders) if hasattr(l.dataset, 'labels') and len(l.dataset.labels) > 0]
+
+        if FEDERATED_MODE == 'FedAvg':
             if active_models:
                 global_model = federated_averaging(active_models)
 
-        else:
+        elif FEDERATED_MODE == 'FedMA':
+            if active_models:
+                # Use Matched Averaging on all active clients to update the single model
+                ref_model = cluster_models[0]
+                agg_model = intra_cluster_fedma(active_models, ref_model, threshold=SIMILARITY_THRESHOLD)
+                if agg_model:
+                    cluster_models[0] = agg_model
+
+        elif FEDERATED_MODE == 'FCMA':
             for cluster_id in range(NUM_CLUSTERS):
                 models_in_cluster = [
-                    local_models[i] for i, c_id in enumerate(client_cluster_assignments) 
-                    if c_id == cluster_id and 
+                    local_models[i] for i, c_id in enumerate(client_cluster_assignments)
+                    if c_id == cluster_id and
                     i < len(local_models) and # Safety check
-                    hasattr(client_dataloaders[i].dataset, 'labels') and 
+                    hasattr(client_dataloaders[i].dataset, 'labels') and
                     len(client_dataloaders[i].dataset.labels) > 0
                 ]
                 if models_in_cluster:
@@ -447,7 +465,7 @@ def main():
                         cluster_models[cluster_id] = agg_model
 
         # --- Per-Round Evaluation ---
-        if FEDERATED_MODE != 'FCMA':
+        if FEDERATED_MODE == 'FedAvg':
             acc, pre, rec, f1 = evaluate(global_model, global_test_loader, return_metrics=True)
         else: # FedMA, FCMA
             all_metrics = [evaluate(m, global_test_loader, return_metrics=True) for m in cluster_models]
@@ -457,7 +475,11 @@ def main():
 
     # --- Final Evaluation and Confusion Matrix ---
     print("\nTraining finished. Performing final evaluation.")
-    final_model = global_model if FEDERATED_MODE != 'FCMA' else cluster_models[0] # Evaluate first cluster model for FedMA/FCMA
+    
+    if FEDERATED_MODE == 'FedAvg':
+        final_model = global_model
+    else: # FedMA, FCMA
+        final_model = cluster_models[0]
 
     y_true, y_pred = evaluate(final_model, global_test_loader, return_preds=True)
 
