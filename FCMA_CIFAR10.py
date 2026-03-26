@@ -51,8 +51,8 @@ print("Libraries imported successfully.")
 # ==============================================================================
 # --- CONFIGURATION ---
 # ==============================================================================
-NUM_ROUNDS = 100
-LOCAL_EPOCHS = 2
+NUM_ROUNDS = 200
+LOCAL_EPOCHS = 5
 BATCH_SIZE = 64
 LEARNING_RATE = 0.01
 SEED = 42
@@ -60,7 +60,7 @@ SEED = 42
 GRADIENT_CLIP_NORM = 1.0
 MIN_LR = 0.0001
 
-RECLUSTERING_INTERVAL = 20
+RECLUSTERING_INTERVAL = 40
 LOW_RANK_DIM = 10
 SIMILARITY_THRESHOLD = 0.1
 
@@ -69,7 +69,7 @@ ALPHA = 0.25
 BETA = 0.45
 GAMMA = 0.30
 
-MODEL_BLEND_WEIGHT = 0.5
+MODEL_BLEND_WEIGHT = 0.7  # Keep 70% of local model, take 30% from new cluster
 
 NUM_CLASSES = 10
 CIFAR_CLASSES = ['airplane', 'automobile', 'bird', 'cat', 'deer',
@@ -226,23 +226,19 @@ def partition_dirichlet(train_dataset, num_clients, alpha=0.5):
 def calculate_s_context(client_metadata):
     """
     Context similarity for CIFAR-10 Dirichlet-partitioned clients.
-    Uses: class distribution overlap, volume tier match, concentration match.
+    Uses continuous class distribution cosine similarity (much more discriminative
+    than coarse Jaccard over top-3 classes).
     """
     n = len(client_metadata)
     s = np.zeros((n, n))
-    for i in range(n):
-        s[i, i] = 1.0
-        for j in range(i + 1, n):
-            mi, mj = client_metadata[i], client_metadata[j]
-            # Class overlap: Jaccard of dominant classes
-            si, sj = mi['dominant_classes'], mj['dominant_classes']
-            class_sim = len(si & sj) / len(si | sj) if (si | sj) else 1.0
-            # Volume tier match
-            vol_sim = 1.0 if mi['volume_tier'] == mj['volume_tier'] else 0.3
-            # Concentration match
-            conc_sim = 1.0 if mi['concentration'] == mj['concentration'] else 0.3
-            sim = 0.5 * class_sim + 0.25 * vol_sim + 0.25 * conc_sim
-            s[i, j] = s[j, i] = sim
+    # Stack all class distributions into a matrix
+    dists = np.array([m['class_distribution'] for m in client_metadata])
+    # Cosine similarity between distribution vectors
+    norms = np.linalg.norm(dists, axis=1, keepdims=True)
+    norms[norms == 0] = 1e-9
+    normed = dists / norms
+    s = normed @ normed.T
+    np.clip(s, 0, 1, out=s)
     return s
 
 
@@ -625,10 +621,28 @@ def run_experiment(mode, num_clients, alpha, agg_mode, init_mode, schedule):
                 combined = a_eff * s_model + b_eff * s_data
                 if g_eff > 0:
                     combined += g_eff * calculate_s_context(client_metadata)
-                client_cluster_assignments = AgglomerativeClustering(
+
+                new_assign = AgglomerativeClustering(
                     n_clusters=num_clusters, metric='precomputed', linkage='average'
                 ).fit_predict(1 - combined)
-                tqdm.write(f"  Round {round_num+1}: Re-clustered → {client_cluster_assignments.tolist()}")
+
+                # Stability: only move clients whose similarity to their current cluster
+                # is significantly lower than their similarity to the proposed new cluster
+                n_moved = 0
+                for cid in range(num_clients):
+                    if new_assign[cid] != prev_assign[cid]:
+                        # Check if move is justified: similarity to new cluster > old + margin
+                        old_cl_members = [j for j in range(num_clients) if prev_assign[j] == prev_assign[cid] and j != cid]
+                        new_cl_members = [j for j in range(num_clients) if new_assign[j] == new_assign[cid] and j != cid]
+                        old_sim = np.mean([combined[cid, j] for j in old_cl_members]) if old_cl_members else 0
+                        new_sim = np.mean([combined[cid, j] for j in new_cl_members]) if new_cl_members else 0
+                        if new_sim > old_sim + 0.05:  # Only move if clearly better
+                            client_cluster_assignments[cid] = new_assign[cid]
+                            n_moved += 1
+                        # else: stay in current cluster
+                    # If same assignment, keep it
+
+                tqdm.write(f"  Round {round_num+1}: Re-clustered (moved {n_moved}/{num_clients} clients)")
 
         # --- Local training ---
         current_local = []
@@ -694,19 +708,25 @@ def run_experiment(mode, num_clients, alpha, agg_mode, init_mode, schedule):
                         cluster_models[cl_id] = agg
         aggregation_times.append(time.time() - t0)
 
-        # --- Evaluate ---
+        # --- Evaluate (FAIR: both methods on global test set) ---
         if mode == 'FedAvg':
             acc = evaluate(global_model, global_test_loader)
         else:
-            # Personalized: each client evaluated with its cluster model
-            accs = []
-            for cid in range(num_clients):
-                if len(client_datasets[cid]) == 0:
-                    continue
-                cl = client_cluster_assignments[cid]
-                a = evaluate_per_client(cluster_models[cl], client_datasets[cid])
-                accs.append(a)
-            acc = np.mean(accs) if accs else 0
+            # For FCMA: evaluate each cluster model on global test, weighted by cluster size
+            cluster_accs = []
+            cluster_sizes = []
+            for cl_id in range(num_clusters):
+                members = [i for i in range(num_clients) if client_cluster_assignments[i] == cl_id and len(client_datasets[i]) > 0]
+                if members:
+                    cl_acc = evaluate(cluster_models[cl_id], global_test_loader)
+                    cluster_accs.append(cl_acc)
+                    cluster_sizes.append(len(members))
+            # Weighted average by cluster size
+            if cluster_accs:
+                total_members = sum(cluster_sizes)
+                acc = sum(a * s for a, s in zip(cluster_accs, cluster_sizes)) / total_members
+            else:
+                acc = 0.0
 
         if (round_num + 1) % 10 == 0 or round_num == 0:
             tqdm.write(f"  Round {round_num+1:3d}: Acc={acc:.4f}  Comm={total_comm_mb:.1f}MB")
