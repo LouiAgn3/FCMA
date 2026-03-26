@@ -578,9 +578,12 @@ def procrustes_aligned_average(model_ref, model_b, ref_loader, device):
     #
     # Similarly for FFN and LayerNorm.
 
+    # Detect device from the state dict
+    weight_device = state_b["blocks.0.attn.out_proj.weight"].device
+
     for blk in range(num_blocks):
         pfx = f"blocks.{blk}"
-        R = rotations[blk]
+        R = rotations[blk].to(weight_device)
         Rt = R.t()
 
         # Rotate output side of this block's attention
